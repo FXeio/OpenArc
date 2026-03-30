@@ -63,8 +63,8 @@ ENV PATH="/root/.local/bin:$PATH"
 # Clone and setup OpenArc
 # ============================================================================
 WORKDIR /app
-RUN git clone https://github.com/SearchSavior/OpenArc.git . && \
-    echo "OpenARC version: $(git describe --tags --always)"
+COPY . /app
+RUN echo "OpenARC fork build"
 
 # ============================================================================
 # Install Python dependencies with uv
