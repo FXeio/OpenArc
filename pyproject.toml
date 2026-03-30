@@ -36,8 +36,8 @@ dependencies = [
   "smolagents>=1.22.0",
   "sounddevice>=0.5.2",
   "soundfile>=0.13.1",
-  "torch>2.6.0",
-  "torchvision>=0.23.0",
+  "torch==2.8.0",
+  "torchvision==0.23.0",
   "uvicorn>=0.35.0",
 ]
 
