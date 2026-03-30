@@ -69,10 +69,15 @@ RUN git clone https://github.com/SearchSavior/OpenArc.git . && \
 # ============================================================================
 # Install Python dependencies with uv
 # ============================================================================
-RUN uv sync && \
-    uv pip install "optimum-intel[openvino] @ git+https://github.com/huggingface/optimum-intel" && \
-    uv pip install --pre -U openvino-genai openvino-tokenizers \
-        --extra-index-url https://storage.openvinotoolkit.org/simple/wheels/nightly
+RUN rm -f uv.lock && \
+    uv sync && \
+    uv pip install --upgrade-strategy eager \
+      "optimum==1.27.*" \
+      "optimum-intel[openvino]==1.25.2" \
+      "transformers==4.51.3" \
+      "openvino==2025.4" \
+      "openvino-tokenizers==2025.4" \
+      "openvino-genai==2025.4"
 
 # Add venv to PATH so openarc command works
 ENV PATH="/app/.venv/bin:$PATH"
