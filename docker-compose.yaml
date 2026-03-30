@@ -1,42 +1,21 @@
-version: '3.8'
-
 services:
   openarc:
     build: .
-    image: openarc:latest
-    container_name: openarc
-    
-    # GPU access
+    restart: unless-stopped
+    ports:
+      - "8000"
     devices:
       - /dev/dri:/dev/dri
-    
-    # Volumes
+    env_file:
+      - .env
     volumes:
-      - ${MODEL_PATH:-./models}:/models
-      - openarc-config:/persist
-    
-    # Ports
-    ports:
-      - "8000:8000"
-    
-    # Environment variables
+      - openarc-models:/models
+      - openarc-persist:/persist
     environment:
-      - OPENARC_API_KEY=${OPENARC_API_KEY:-openarc-default-key}
-      - OPENARC_AUTOLOAD_MODEL=${OPENARC_AUTOLOAD_MODEL:-}
-      # Intel GPU tuning variables
-      - NEOReadDebugKeys=1
-      - OverrideGpuAddressSpace=48
-      - EnableImplicitScaling=1
-    
-    # Restart policy
-    restart: unless-stopped
-    
-    # Logging
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      NEOReadDebugKeys: "1"
+      OverrideGpuAddressSpace: "48"
+      EnableImplicitScaling: "1"
 
 volumes:
-  openarc-config:
+  openarc-models:
+  openarc-persist:
