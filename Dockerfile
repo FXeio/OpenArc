@@ -1,14 +1,16 @@
 # ============================================================================
-# OpenARC From Scratch - Ubuntu Base + Manual Intel Setup
+# OpenARC - Ubuntu 24.04 + Legacy Intel OpenCL runtime for Gemini Lake
 # ============================================================================
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ============================================================================
-# System Dependencies
+# System dependencies
 # ============================================================================
-RUN apt-get update && apt-get install -y \
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
@@ -18,28 +20,35 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
     python3-dev \
-    python3-pip && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
-    rm -rf /var/lib/apt/lists/*
+    python3-pip \
+    build-essential \
+    cmake \
+    libudev-dev \
+    clinfo \
+    ocl-icd-libopencl1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3 1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # ============================================================================
-# Intel GPU Drivers
+# Intel legacy OpenCL / Level Zero runtime for pre-Gen12 iGPU
+# Gemini Lake / UHD 600 needs the legacy 24.35 line, not current noble packages
 # ============================================================================
-RUN wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | \
-    gpg --dearmor --output /usr/share/keyrings/intel-graphics.gpg && \
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu noble client" | \
-    tee /etc/apt/sources.list.d/intel-gpu-noble.list && \
-    apt-get update && apt-get install -y \
-    intel-opencl-icd \
-    intel-level-zero-gpu \
-    level-zero \
-    level-zero-dev && \
-    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /tmp/neo && cd /tmp/neo && \
+    wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.17537.20/intel-igc-core_1.0.17537.20_amd64.deb && \
+    wget https://github.com/intel/intel-graphics-compiler/releases/download/igc-1.0.17537.20/intel-igc-opencl_1.0.17537.20_amd64.deb && \
+    wget https://github.com/intel/compute-runtime/releases/download/24.35.30872.22/libigdgmm12_22.5.0_amd64.deb && \
+    wget https://github.com/intel/compute-runtime/releases/download/24.35.30872.22/intel-opencl-icd-legacy1_24.35.30872.22_amd64.deb && \
+    wget https://github.com/intel/compute-runtime/releases/download/24.35.30872.22/intel-level-zero-gpu-legacy1_1.3.30872.22_amd64.deb && \
+    dpkg -i ./*.deb || apt-get -f install -y && \
+    ldconfig && \
+    rm -rf /tmp/neo
 
 # ============================================================================
-# Intel NPU Driver
+# Intel NPU driver (leave as-is from your fork)
 # ============================================================================
-RUN apt-get update && apt-get install -y \
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     build-essential \
     libudev-dev && \
@@ -54,56 +63,70 @@ RUN apt-get update && apt-get install -y \
     cd / && rm -rf /tmp/npu-driver /var/lib/apt/lists/*
 
 # ============================================================================
-# Install uv package manager
+# Install uv
 # ============================================================================
+
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
 # ============================================================================
-# Clone and setup OpenArc
+# App code
 # ============================================================================
+
 WORKDIR /app
 COPY . /app
 RUN echo "OpenARC fork build"
 
 # ============================================================================
-# Install Python dependencies with uv
+# Python deps
+# Assumes pyproject.toml is already pinned to:
+#   openvino==2025.4
+#   openvino-genai==2025.4
+#   openvino-tokenizers==2025.4
+#   optimum==1.27.0
+#   optimum-intel[openvino]==1.25.2
+#   transformers==4.51.3
+#   torch==2.8.0
+#   torchvision==0.23.0
 # ============================================================================
+
 RUN rm -f uv.lock && \
     uv sync --refresh --reinstall
 
-# Add venv to PATH so openarc command works
 ENV PATH="/app/.venv/bin:$PATH"
 
 # ============================================================================
-# Runtime Configuration
+# Runtime configuration
 # ============================================================================
+
 ENV NEOReadDebugKeys=1 \
     OverrideGpuAddressSpace=48 \
     EnableImplicitScaling=1 \
     OPENARC_API_KEY=key \
     OPENARC_AUTOLOAD_MODEL=""
 
-# Create persistent config directory and symlink
+# Persistent config
 RUN mkdir -p /persist && \
     ln -sf /persist/openarc_config.json /app/openarc_config.json
 
 # ============================================================================
-# Build Info Logging
+# Build info
 # ============================================================================
+
 RUN echo "=== Build Information ===" > /app/BUILD_INFO.txt && \
     echo "Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> /app/BUILD_INFO.txt && \
-    echo "OpenARC Version: $(git describe --tags --always)" >> /app/BUILD_INFO.txt && \
+    echo "OpenARC Version: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" >> /app/BUILD_INFO.txt && \
     echo "" >> /app/BUILD_INFO.txt && \
     echo "=== Intel Package Versions ===" >> /app/BUILD_INFO.txt && \
     uv pip list | grep -E "(openvino|optimum|torch)" >> /app/BUILD_INFO.txt || true && \
     echo "" >> /app/BUILD_INFO.txt && \
     echo "=== System Package Versions ===" >> /app/BUILD_INFO.txt && \
-    dpkg -l | grep -E "intel-opencl|level-zero" | awk '{print $2 " " $3}' >> /app/BUILD_INFO.txt || true
+    dpkg -l | grep -E "intel-opencl|level-zero|igdgmm|igc" | awk '{print $2 " " $3}' >> /app/BUILD_INFO.txt || true
 
 # ============================================================================
-# Startup Script
+# Startup script
 # ============================================================================
+
 RUN cat > /usr/local/bin/start-openarc.sh <<'SCRIPT'
 #!/bin/bash
 set -e
@@ -117,6 +140,16 @@ if [ -f /app/BUILD_INFO.txt ]; then
   echo ""
 fi
 
+echo "=== OpenCL sanity ==="
+ls -l /etc/OpenCL/vendors || true
+cat /etc/OpenCL/vendors/*.icd 2>/dev/null || true
+clinfo | head -40 || true
+python - <<'PY' || true
+import openvino as ov
+print("OpenVINO devices:", ov.Core().available_devices)
+PY
+echo ""
+
 echo "=== Runtime Configuration ==="
 echo "Port: 8000"
 echo "API Key: ${OPENARC_API_KEY:0:10}..."
@@ -124,11 +157,9 @@ echo "Auto-load Model: ${OPENARC_AUTOLOAD_MODEL:-none}"
 echo ""
 echo "================================================"
 
-# Start server in background
 openarc serve start --host 0.0.0.0 --port 8000 &
 SERVER_PID=$!
 
-# Auto-load model if specified
 if [ -n "$OPENARC_AUTOLOAD_MODEL" ]; then
   echo "Waiting for server to start..."
   for i in {1..30}; do
@@ -142,7 +173,6 @@ if [ -n "$OPENARC_AUTOLOAD_MODEL" ]; then
   done
 fi
 
-# Wait for server
 wait $SERVER_PID
 SCRIPT
 
